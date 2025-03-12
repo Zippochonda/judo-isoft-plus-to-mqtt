@@ -1,2 +1,8 @@
 # judo-isoft-plus-to-mqtt
-Dieses Python-Skript ist dazu konzipiert, Daten von einem Judo i-soft plus Wasserenthärtungssystem abzurufen und diese in ein MQTT-Netzwerk zu veröffentlichen, wodurch eine Integration in Home Assistant ermöglicht wird. 
+Dieses Python-Skript ist dazu konzipiert, Daten von einem Judo i-soft plus Wasserenthärtungssystem abzurufen und diese in ein MQTT-Netzwerk zu veröffentlichen, wodurch eine Integration in Home Assistant ermöglicht wird. Es führt einen Login auf der webbasierten Schnittstelle des Systems durch, um ein Authentifizierungstoken zu erhalten, und nutzt dieses, um verschiedene Datenpunkte wie Wasserverbrauch, Salzfüllstand, Wasserhärte und Ventilstatus abzufragen. Anschließend werden diese Daten in Echtzeit über MQTT-Topics publiziert und mithilfe von Home Assistant Auto-Discovery automatisch in Home Assistant als Sensoren, Schalter und Schieberegler eingerichtet. Dadurch können Nutzer das Wassersystem überwachen, steuern und automatisieren.
+
+This Python script is designed to retrieve data from a Judo i-soft plus water softening system and publish it to an MQTT network, enabling integration with Home Assistant. It performs a login to the system's web-based interface to obtain an authentication token and uses this to retrieve various data points such as water consumption, salt level, water hardness and valve status. This data is then published in real time via MQTT topics and automatically set up in Home Assistant as sensors, switches and sliders using Home Assistant Auto-Discovery. This allows users to monitor, control and automate the water system.
+
+Angelehnt an https://github.com/www-ShapeLabs-de/Judo-i-soft-save-plus-to-mqtt-bridge kann es über den Appdeamon auf Homeassist ausgeführt werden.
+
+Based on https://github.com/www-ShapeLabs-de/Judo-i-soft-save-plus-to-mqtt-bridge, it can be executed via the Appdeamon on Homeassist.
