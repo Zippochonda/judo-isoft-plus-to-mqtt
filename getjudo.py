@@ -196,7 +196,7 @@ client.loop_start()
 if __name__ == "__main__":
     
     token = login()
-    response2 = send_http_get_request(f"{base_url}?group=register&command=connect&msgnumber=5&token={token}&parameter=i-soft%20plus&serial%20number=129741")
+    response2 = send_http_get_request(f"{base_url}?group=register&command=connect&msgnumber=5&token={token}&parameter=i-soft%20plus&serial%20number={serial}")
     print(response2)
     time.sleep(3)
     if token:
