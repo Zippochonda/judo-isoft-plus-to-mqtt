@@ -17,17 +17,17 @@ import uuid  # Für eindeutige IDs
 urllib3.disable_warnings()
 
 # Konfiguration
-base_url = "https://192.168.178.XXX:8124"
-username = "XXXX"
-password = "XXXX"
+base_url = "https://192.168.178.YYY:8124"
+username = "XXXXX"
+password = "XXXXX"
 serial = "XXXX"
 
 # MQTT-Konfiguration
-mqtt_broker = "192.168.178.XXX"  # Ersetze dies mit deiner MQTT-Broker-Adresse
+mqtt_broker = "192.168.178.XX"  # Ersetze dies mit deiner MQTT-Broker-Adresse
 mqtt_port = 1883  # Standard-MQTT-Port
-mqtt_user = "XXXXX"  # Ersetze dies mit deinem MQTT-Benutzernamen
-mqtt_password = "XXXXX"  # Ersetze dies mit deinem MQTT-Passwort
-mqtt_client_id = f"judo_i_soft_plus_{uuid.uuid4().hex[:8]}"  # Eindeutige Client-ID
+mqtt_user = "XXXX"  # Ersetze dies mit deinem MQTT-Benutzernamen
+mqtt_password = "XXXX"  # Ersetze dies mit deinem MQTT-Passwort
+mqtt_client_id = "judo_i_soft_plus"  # Eindeutige Client-ID
 base_topic = "homeassistant/sensor/judo_i_soft_plus"  # Basis-Topic für Home Assistant Auto-Discovery
 command_topic = "judo_i_soft_plus/command"  # Topic für Befehle (z.B. Ventilsteuerung, Wasserhärte)
 
@@ -194,69 +194,76 @@ client.loop_start()
 # --- Hauptprogramm ---
 
 if __name__ == "__main__":
+    
     token = login()
-    response2 = send_http_get_request(f"{base_url}?group=register&command=connect&msgnumber=5&token={token}&parameter=i-soft%20plus&serial%20number={serial}")
+    response2 = send_http_get_request(f"{base_url}?group=register&command=connect&msgnumber=5&token={token}&parameter=i-soft%20plus&serial%20number=129741")
     print(response2)
     time.sleep(3)
     if token:
         print("Login erfolgreich.")
+    while True:  # Endlosschleife
+        try:
+            # Wasserverbrauch
+            water_total = get_data(token, "consumption", "water total")
+            total_water = water_total
+            rawwater, decarbonatedwater = map(float, water_total.split(" ")[1:])
 
-        # Wasserverbrauch
-        water_total = get_data(token, "consumption", "water total")
-        total_water = water_total
-        rawwater, decarbonatedwater = map(float, water_total.split(" ")[1:])
-
-        water_average = get_data(token, "consumption", "water average")
-        actual_quantity = get_data(token, "consumption", "actual quantity")
-        salt_quantity = get_data(token, "consumption", "salt quantity")
-        salt_range = get_data(token, "consumption", "salt range")
-        residual_hardness = get_data(token, "settings", "residual hardness")
-        valve_status = get_data(token, "waterstop", "valve")
-        standby = get_data(token, "waterstop", "standby")
-        abstraction_time = get_data(token, "waterstop", "abstraction time")
-        flow_rate = get_data(token, "waterstop", "flow rate")
-        quantity = get_data(token, "waterstop", "quantity")
-        vacation = get_data(token, "waterstop", "vacation")
+            water_average = get_data(token, "consumption", "water average")
+            actual_quantity = get_data(token, "consumption", "actual quantity")
+            salt_quantity = get_data(token, "consumption", "salt quantity")
+            salt_range = get_data(token, "consumption", "salt range")
+            residual_hardness = get_data(token, "settings", "residual hardness")
+            valve_status = get_data(token, "waterstop", "valve")
+            standby = get_data(token, "waterstop", "standby")
+            abstraction_time = get_data(token, "waterstop", "abstraction time")
+            flow_rate = get_data(token, "waterstop", "flow rate")
+            quantity = get_data(token, "waterstop", "quantity")
+            vacation = get_data(token, "waterstop", "vacation")
+            
+            print("Daten abgeholt")
         
-        print("Daten abgeholt")
-        
-        # --- Wöchentlicher Wasserverbrauch ---
-        today = datetime.datetime.now()
-        year, month, day = today.year, today.month, today.day
-        water_weekly = get_data(token, "consumption", "water weekly", year=year, month=month, day=day)
+            # --- Wöchentlicher Wasserverbrauch ---
+            today = datetime.datetime.now()
+            year, month, day = today.year, today.month, today.day
+            water_weekly = get_data(token, "consumption", "water weekly", year=year, month=month, day=day)
 
-        # --- Jährlicher Wasserverbrauch ---
-        water_yearly = get_data(token, "consumption", "water yearly", year=year)
+            # --- Jährlicher Wasserverbrauch ---
+            water_yearly = get_data(token, "consumption", "water yearly", year=year)
 
-        # Daten über MQTT veröffentlichen
-        client.publish(f"judo_i_soft_plus/state/rohwasser", str(rawwater))
-        client.publish(f"judo_i_soft_plus/state/entkalktes_wasser", str(decarbonatedwater))
-        client.publish(f"judo_i_soft_plus/state/wasserverbrauch_durchschnitt", str(water_average))
-        client.publish(f"judo_i_soft_plus/state/aktuelle_menge", str(actual_quantity))
-        client.publish(f"judo_i_soft_plus/state/salzmenge", str(salt_quantity))
-        client.publish(f"judo_i_soft_plus/state/salzbereich", str(salt_range))
-        client.publish(f"judo_i_soft_plus/state/resthaerte", str(residual_hardness))
-        client.publish(f"judo_i_soft_plus/state/ventilstatus", str(valve_status))
-        client.publish(f"judo_i_soft_plus/state/standby_status", str(standby))
-        client.publish(f"judo_i_soft_plus/state/wasserstop_entnahmezeit", str(abstraction_time))
-        client.publish(f"judo_i_soft_plus/state/wasserstop_durchflussrate", str(flow_rate))
-        client.publish(f"judo_i_soft_plus/state/wasserstop_menge", str(quantity))
-        client.publish(f"judo_i_soft_plus/state/urlaubsmodus", str(vacation))
-        
-        # Wöchentlicher Wasserverbrauch per MQTT veröffentlichen
-        print("Wöchentlicher Wasserverbrauch per MQTT veröffentlichen")
-        if water_weekly:
-            days = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-            values = list(map(float, water_weekly.split(" ")[1:]))
-            for i, day_value in enumerate(zip(days, values)):
-                client.publish(f"judo_i_soft_plus/state/wasser_woche/{day_value[0].lower()}",str(day_value[1]))
+            # Daten über MQTT veröffentlichen
+            client.publish(f"judo_i_soft_plus/state/rohwasser", str(rawwater))
+            client.publish(f"judo_i_soft_plus/state/entkalktes_wasser", str(decarbonatedwater))
+            client.publish(f"judo_i_soft_plus/state/wasserverbrauch_durchschnitt", str(water_average))
+            client.publish(f"judo_i_soft_plus/state/aktuelle_menge", str(actual_quantity))
+            client.publish(f"judo_i_soft_plus/state/salzmenge", str(salt_quantity))
+            client.publish(f"judo_i_soft_plus/state/salzbereich", str(salt_range))
+            client.publish(f"judo_i_soft_plus/state/resthaerte", str(residual_hardness))
+            client.publish(f"judo_i_soft_plus/state/ventilstatus", str(valve_status))
+            client.publish(f"judo_i_soft_plus/state/standby_status", str(standby))
+            client.publish(f"judo_i_soft_plus/state/wasserstop_entnahmezeit", str(abstraction_time))
+            client.publish(f"judo_i_soft_plus/state/wasserstop_durchflussrate", str(flow_rate))
+            client.publish(f"judo_i_soft_plus/state/wasserstop_menge", str(quantity))
+            client.publish(f"judo_i_soft_plus/state/urlaubsmodus", str(vacation))
+            
+            # Wöchentlicher Wasserverbrauch per MQTT veröffentlichen
+            print("Wöchentlicher Wasserverbrauch per MQTT veröffentlichen")
+            if water_weekly:
+                days = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+                values = list(map(float, water_weekly.split(" ")[1:]))
+                for i, day_value in enumerate(zip(days, values)):
+                    client.publish(f"judo_i_soft_plus/state/wasser_woche/{day_value[0].lower()}",str(day_value[1]))
 
-        # Jährlicher Wasserverbrauch per MQTT veröffentlichen
-        print("Wöchentlicher Wasserverbrauch per MQTT veröffentlichen")
-        if water_yearly:
-            months = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
-            values = list(map(float, water_yearly.split(" ")[1:]))
-            for i, month_value in enumerate(zip(months, values)):
-                client.publish(f"judo_i_soft_plus/state/wasser_jahr/{month_value[0].lower()}",str(month_value[1]))
+            # Jährlicher Wasserverbrauch per MQTT veröffentlichen
+            print("Wöchentlicher Wasserverbrauch per MQTT veröffentlichen")
+            if water_yearly:
+                months = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
+                values = list(map(float, water_yearly.split(" ")[1:]))
+                for i, month_value in enumerate(zip(months, values)):
+                    client.publish(f"judo_i_soft_plus/state/wasser_jahr/{month_value[0].lower()}",str(month_value[1]))
 
-    print("Skript abgeschlossen.")
+            print("Skript abgeschlossen.")
+            time.sleep(300)  # 5 Minuten Pause
+        except Exception as e:
+            print(f"Ein Fehler ist aufgetreten: {e}")
+            time.sleep(300) # Bei Fehler auch 5 Minuten warten, damit das System nicht überlastet wird.
+            
