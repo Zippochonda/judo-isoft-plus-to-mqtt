@@ -6,3 +6,26 @@ This Python script is designed to retrieve data from a Judo i-soft plus water so
 Angelehnt an https://github.com/www-ShapeLabs-de/Judo-i-soft-save-plus-to-mqtt-bridge kann es über den Appdeamon auf Homeassist ausgeführt werden.
 
 Based on https://github.com/www-ShapeLabs-de/Judo-i-soft-save-plus-to-mqtt-bridge, it can be executed via the Appdeamon on Homeassist.
+
+Einrichtung von AppDaemon direkt in Home Assistant
+
+MQTT sollte bereits eingerichtet und laufen.
+
+Installiere AppDaemon und Studio Code Server (optional) über den Home Assistant Add-Ons Store 
+(https://community.home-assistant.io/t/home-assistant-community-add-on-appdaemon-4/163259).
+
+Konfiguriere AppDaemon mit den folgenden Einstellungen:
+init_commands: []
+python_packages:
+  paho-mqtt
+system_packages:
+
+Kopiere die apps.yaml aus dem Github Ordner in den Ordner /addon_configs/a0d7b954_appdaemon/apps/ -> über Studio Code Server. 
+
+Kopiere die judo.py und main_entity.py aus dem Github Ordner in den Ordner /addon_configs/a0d7b954_appdaemon/apps/main -> über Studio Code Server. (Wenn der Ordner nicht existiert, erstelle ihn)
+
+Passe die judo.py-Datei an dein System an über Studio Code Server.
+
+Starte AppDaemon und überprüfe die Protokolle auf mögliche Fehler. ACHTUNG der erste Start dauert ca. 10 Minuten.
+
+Du kannst problemlos weitere Skripte in die main_entity.py-Datei (Hauptdatei, in der alle Skripte aufgerufen werden) hinzufügen.
