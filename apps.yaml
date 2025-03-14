@@ -1,0 +1,3 @@
+main_app:
+  module: main_entity
+  class: main_loop
