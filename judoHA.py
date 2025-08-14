@@ -46,7 +46,7 @@ def send_http_get_request(session, url):
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Fehler beim Senden der Anfrage: {e}")
+        print(f"Fehler beim Senden der GET-Anfrage (erwarte JSON): {e}")
         return None
 
 def login(session):
@@ -61,13 +61,23 @@ def get_data(session, token, group, command, **kwargs):
         print("Fehler: Ungültiges Token für get_data.")
         return None
     url = f"{BASE_URL}?group={group}&command={command}&msgnumber=1&token={token}"
-    # Hinzufügen von zusätzlichen Parametern für SET-Befehle (z.B. value=4)
     for key, value in kwargs.items():
         url += f"&{key}={value}"
     response = send_http_get_request(session, url)
     if response:
         return response.get("data")
     return None
+
+def sende_get_befehl(session, url):
+    """Sendet einen GET-Befehl an die Anlage, ohne eine JSON-Antwort zu erwarten."""
+    try:
+        response = session.get(url, verify=False, timeout=15)
+        response.raise_for_status()
+        print(f"GET-Befehl erfolgreich gesendet. HTTP-Status: {response.status_code}")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Fehler beim Senden des GET-Befehls: {e}")
+        return False
 
 # --- MQTT-Funktionen ---
 def publish_auto_discovery(client):
@@ -90,12 +100,10 @@ def publish_auto_discovery(client):
             "state_topic": f"{STATE_TOPIC_BASE}/{object_id}", "device": device_info, **config
         }
         client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
-    # Konfiguration für den Ventil-Schalter
     client.publish(f"homeassistant/switch/{MQTT_CLIENT_ID}/valve/config", json.dumps({
         "unique_id": f"{MQTT_CLIENT_ID}_valve", "name": "Judo Ventil", "command_topic": COMMAND_TOPIC,
         "state_topic": f"{STATE_TOPIC_BASE}/ventilstatus", "payload_on": "open", "payload_off": "close", "device": device_info
     }), retain=True)
-    # Konfiguration für den Resthärte-Regler
     client.publish(f"homeassistant/number/{MQTT_CLIENT_ID}/hardness/config", json.dumps({
         "unique_id": f"{MQTT_CLIENT_ID}_hardness", "name": "Judo Resthärte", "command_topic": COMMAND_TOPIC,
         "state_topic": f"{STATE_TOPIC_BASE}/resthaerte", "min": 1, "max": 14, "step": 1, "unit_of_measurement": "°dH", "device": device_info
@@ -123,34 +131,31 @@ def on_message(client, userdata, msg):
         print("Kann Befehl nicht ausführen, da kein gültiges Token oder Session vorhanden ist.")
         return
 
-    # Befehl analysieren und entsprechende Aktion ausführen
+    # Ventilsteuerung via GET mit korrekten Parametern
     if command_payload.lower() in ("open", "close"):
-        # Ventilsteuerung (Leckageschutz)
         print(f"Setze Ventilstatus auf: {command_payload}")
-        # Der API-Befehl lautet "set valve", der Wert wird als "value" übergeben
-        response = get_data(session, token, "waterstop", "set valve", value=command_payload.lower())
-        print(f"Antwort von der Anlage: {response}")
-        # Nach dem Setzen den aktuellen Status abfragen und veröffentlichen
-        time.sleep(1) # Kurze Pause, damit die Anlage den Befehl verarbeiten kann
+        url = f"{BASE_URL}?group=waterstop&command=valve&msgnumber=1&token={token}&parameter={command_payload.lower()}"
+        sende_get_befehl(session, url)
+
+        time.sleep(2)
         new_valve_status = get_data(session, token, "waterstop", "valve")
         if new_valve_status is not None and new_valve_status not in ("invalid token", "not logged in"):
             client.publish(f"{STATE_TOPIC_BASE}/ventilstatus", new_valve_status)
 
+    # Resthärte-Einstellung via GET mit korrekten Parametern
     elif command_payload.isdigit():
-        # Resthärte einstellen
         hardness = int(command_payload)
         print(f"Setze Resthärte auf: {hardness}°dH")
-        # Der API-Befehl lautet "set residual hardness", der Wert wird als "value" übergeben
-        response = get_data(session, token, "settings", "set residual hardness", value=hardness)
-        print(f"Antwort von der Anlage: {response}")
-        # Nach dem Setzen den aktuellen Wert abfragen und veröffentlichen
-        time.sleep(1)
+        # Der Befehl `residual hardness` enthält ein Leerzeichen, das von `requests` automatisch URL-kodiert wird.
+        url = f"{BASE_URL}?group=settings&command=residual hardness&msgnumber=1&token={token}&parameter={hardness}"
+        sende_get_befehl(session, url)
+
+        time.sleep(2)
         new_hardness = get_data(session, token, "settings", "residual hardness")
         if new_hardness is not None and new_hardness not in ("invalid token", "not logged in"):
             client.publish(f"{STATE_TOPIC_BASE}/resthaerte", new_hardness)
     else:
         print(f"Unbekannter Befehl empfangen: '{command_payload}'")
-
 
 # --- Hauptprogramm ---
 if __name__ == "__main__":
@@ -233,4 +238,5 @@ if __name__ == "__main__":
             print(f"Ein unerwarteter Fehler ist aufgetreten: {e}")
             token = None
             client.user_data_set({'token': token, 'session': session})
+            time.sleep(60) token, 'session': session})
             time.sleep(60)
