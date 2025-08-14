@@ -27,6 +27,9 @@ BASE_TOPIC = f"homeassistant/sensor/{MQTT_CLIENT_ID}"
 COMMAND_TOPIC = f"{MQTT_CLIENT_ID}/command"
 STATE_TOPIC_BASE = f"{MQTT_CLIENT_ID}/state"
 
+# --- NEU: Konfiguration der Vorrangschaltung ---
+COMMAND_COOLDOWN_SECONDS = 120 # 2 Minuten
+
 class LegacySSLAdapter(HTTPAdapter):
     def __init__(self, *args, **kwargs):
         self.ssl_context = ssl.create_default_context()
@@ -131,31 +134,37 @@ def on_message(client, userdata, msg):
         print("Kann Befehl nicht ausführen, da kein gültiges Token oder Session vorhanden ist.")
         return
 
+    command_sent = False
     # Ventilsteuerung via GET mit korrekten Parametern
     if command_payload.lower() in ("open", "close"):
         print(f"Setze Ventilstatus auf: {command_payload}")
         url = f"{BASE_URL}?group=waterstop&command=valve&msgnumber=1&token={token}&parameter={command_payload.lower()}"
-        sende_get_befehl(session, url)
-
-        time.sleep(2)
-        new_valve_status = get_data(session, token, "waterstop", "valve")
-        if new_valve_status is not None and new_valve_status not in ("invalid token", "not logged in"):
-            client.publish(f"{STATE_TOPIC_BASE}/ventilstatus", new_valve_status)
+        if sende_get_befehl(session, url):
+            command_sent = True
+            time.sleep(2)
+            new_valve_status = get_data(session, token, "waterstop", "valve")
+            if new_valve_status is not None and new_valve_status not in ("invalid token", "not logged in"):
+                client.publish(f"{STATE_TOPIC_BASE}/ventilstatus", new_valve_status)
 
     # Resthärte-Einstellung via GET mit korrekten Parametern
     elif command_payload.isdigit():
         hardness = int(command_payload)
         print(f"Setze Resthärte auf: {hardness}°dH")
-        # Der Befehl `residual hardness` enthält ein Leerzeichen, das von `requests` automatisch URL-kodiert wird.
         url = f"{BASE_URL}?group=settings&command=residual hardness&msgnumber=1&token={token}&parameter={hardness}"
-        sende_get_befehl(session, url)
-
-        time.sleep(2)
-        new_hardness = get_data(session, token, "settings", "residual hardness")
-        if new_hardness is not None and new_hardness not in ("invalid token", "not logged in"):
-            client.publish(f"{STATE_TOPIC_BASE}/resthaerte", new_hardness)
+        if sende_get_befehl(session, url):
+            command_sent = True
+            time.sleep(2)
+            new_hardness = get_data(session, token, "settings", "residual hardness")
+            if new_hardness is not None and new_hardness not in ("invalid token", "not logged in"):
+                client.publish(f"{STATE_TOPIC_BASE}/resthaerte", new_hardness)
     else:
         print(f"Unbekannter Befehl empfangen: '{command_payload}'")
+
+    # ### ÄNDERUNG 1: Den Cooldown-Timer setzen, wenn ein Befehl erfolgreich war ###
+    if command_sent:
+        cooldown_end_time = time.time() + COMMAND_COOLDOWN_SECONDS
+        userdata['cooldown_until'] = cooldown_end_time
+        print(f"Vorrangschaltung aktiviert! Pausiere die Datenabfrage für {COMMAND_COOLDOWN_SECONDS} Sekunden.")
 
 # --- Hauptprogramm ---
 if __name__ == "__main__":
@@ -167,8 +176,12 @@ if __name__ == "__main__":
     session = requests.Session()
     session.mount('https://', LegacySSLAdapter())
 
-    token = None
-    client.user_data_set({'token': token, 'session': session})
+    # ### ÄNDERUNG 2: Den Cooldown-Timer initialisieren ###
+    client.user_data_set({
+        'token': None,
+        'session': session,
+        'cooldown_until': 0  # Zeitstempel, bis zu dem pausiert wird. 0 = nicht aktiv.
+    })
 
     try:
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
@@ -179,24 +192,33 @@ if __name__ == "__main__":
 
     while True:
         try:
-            if not token:
+            # ### ÄNDERUNG 3: Prüfen, ob die Vorrangschaltung aktiv ist ###
+            userdata = client._userdata
+            if time.time() < userdata.get('cooldown_until', 0):
+                # Wenn der Cooldown aktiv ist, eine kurze Pause einlegen und die Schleife neu starten.
+                # Dies verhindert, dass neue Daten abgefragt werden.
+                time.sleep(5)
+                continue
+
+            if not userdata.get('token'):
                 print("Kein Token vorhanden, versuche Login...")
                 token = login(session)
                 if token:
                     print("Login erfolgreich.")
-                    client.user_data_set({'token': token, 'session': session})
+                    userdata['token'] = token
                     send_http_get_request(session, f"{BASE_URL}?group=register&command=connect&msgnumber=5&token={token}&parameter=i-soft%20plus&serial%20number={SERIAL}")
                 else:
                     print("Login fehlgeschlagen. Warte 60 Sekunden.")
                     time.sleep(60)
                     continue
             
+            # Sicherstellen, dass wir den aktuellsten Token verwenden
+            token = userdata.get('token')
             raw_water_total = get_data(session, token, "consumption", "water total")
 
             if raw_water_total in ("invalid token", "not logged in"):
                 print(f"Token abgelaufen (Antwort: '{raw_water_total}'). Fordere neuen an.")
-                token = None
-                client.user_data_set({'token': token, 'session': session})
+                userdata['token'] = None
                 continue
             
             if raw_water_total and isinstance(raw_water_total, str):
@@ -228,7 +250,7 @@ if __name__ == "__main__":
                 if value is not None and value not in ("invalid token", "not logged in"):
                     client.publish(f"{STATE_TOPIC_BASE}/{name}", value)
             
-            print("Daten erfolgreich aktualisiert.")
+            print(f"Daten erfolgreich aktualisiert. Nächste Abfrage in {300} Sekunden.")
             time.sleep(300)
 
         except requests.exceptions.ConnectionError as e:
@@ -236,7 +258,6 @@ if __name__ == "__main__":
             time.sleep(60)
         except Exception as e:
             print(f"Ein unerwarteter Fehler ist aufgetreten: {e}")
-            token = None
-            client.user_data_set({'token': token, 'session': session})
-            time.sleep(60) token, 'session': session})
+            if client._userdata:
+                client._userdata['token'] = None # Token bei Fehler zurücksetzen
             time.sleep(60)
