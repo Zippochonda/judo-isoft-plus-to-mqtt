@@ -23,6 +23,7 @@ MQTT_PORT = 1883
 MQTT_USER = "MQTTUSER"
 MQTT_PASSWORD = "MQTTPWD"
 MQTT_CLIENT_ID = "judo_i_soft_plus"
+MQTT_CLIENT_ID = "judo_i_soft_plus"
 BASE_TOPIC = f"homeassistant/sensor/{MQTT_CLIENT_ID}"
 COMMAND_TOPIC = f"{MQTT_CLIENT_ID}/command"
 STATE_TOPIC_BASE = f"{MQTT_CLIENT_ID}/state"
@@ -61,13 +62,11 @@ def get_data(session, token, group, command, **kwargs):
         print("Fehler: Ungültiges Token für get_data.")
         return None
     url = f"{BASE_URL}?group={group}&command={command}&msgnumber=1&token={token}"
+    # Hinzufügen von zusätzlichen Parametern für SET-Befehle (z.B. value=4)
     for key, value in kwargs.items():
         url += f"&{key}={value}"
     response = send_http_get_request(session, url)
     if response:
-        if response.get("status") == "error" and response.get("data") == "invalid token":
-            print("Token ist abgelaufen.")
-            return "invalid token"
         return response.get("data")
     return None
 
@@ -92,10 +91,12 @@ def publish_auto_discovery(client):
             "state_topic": f"{STATE_TOPIC_BASE}/{object_id}", "device": device_info, **config
         }
         client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
+    # Konfiguration für den Ventil-Schalter
     client.publish(f"homeassistant/switch/{MQTT_CLIENT_ID}/valve/config", json.dumps({
         "unique_id": f"{MQTT_CLIENT_ID}_valve", "name": "Judo Ventil", "command_topic": COMMAND_TOPIC,
         "state_topic": f"{STATE_TOPIC_BASE}/ventilstatus", "payload_on": "open", "payload_off": "close", "device": device_info
     }), retain=True)
+    # Konfiguration für den Resthärte-Regler
     client.publish(f"homeassistant/number/{MQTT_CLIENT_ID}/hardness/config", json.dumps({
         "unique_id": f"{MQTT_CLIENT_ID}_hardness", "name": "Judo Resthärte", "command_topic": COMMAND_TOPIC,
         "state_topic": f"{STATE_TOPIC_BASE}/resthaerte", "min": 1, "max": 14, "step": 1, "unit_of_measurement": "°dH", "device": device_info
@@ -112,15 +113,45 @@ def on_connect(client, userdata, flags, rc, properties=None):
         print(f"MQTT-Verbindung fehlgeschlagen: {rc}")
 
 def on_message(client, userdata, msg):
-    command = msg.payload.decode("utf-8")
-    print(f"Befehl empfangen: {command}")
+    """Verarbeitet eingehende MQTT-Befehle."""
+    command_payload = msg.payload.decode("utf-8")
+    print(f"Befehl empfangen: {command_payload}")
+    
     token = userdata.get('token')
     session = userdata.get('session')
+
     if not token or not session:
         print("Kann Befehl nicht ausführen, da kein gültiges Token oder Session vorhanden ist.")
         return
-    # Hier könnten die Befehlsfunktionen noch angepasst werden, um die Session zu nutzen
-    print(f"Befehl '{command}' wird aktuell nicht ausgeführt (Anpassung nötig).")
+
+    # Befehl analysieren und entsprechende Aktion ausführen
+    if command_payload.lower() in ("open", "close"):
+        # Ventilsteuerung (Leckageschutz)
+        print(f"Setze Ventilstatus auf: {command_payload}")
+        # Der API-Befehl lautet "set valve", der Wert wird als "value" übergeben
+        response = get_data(session, token, "waterstop", "set valve", value=command_payload.lower())
+        print(f"Antwort von der Anlage: {response}")
+        # Nach dem Setzen den aktuellen Status abfragen und veröffentlichen
+        time.sleep(1) # Kurze Pause, damit die Anlage den Befehl verarbeiten kann
+        new_valve_status = get_data(session, token, "waterstop", "valve")
+        if new_valve_status is not None and new_valve_status not in ("invalid token", "not logged in"):
+            client.publish(f"{STATE_TOPIC_BASE}/ventilstatus", new_valve_status)
+
+    elif command_payload.isdigit():
+        # Resthärte einstellen
+        hardness = int(command_payload)
+        print(f"Setze Resthärte auf: {hardness}°dH")
+        # Der API-Befehl lautet "set residual hardness", der Wert wird als "value" übergeben
+        response = get_data(session, token, "settings", "set residual hardness", value=hardness)
+        print(f"Antwort von der Anlage: {response}")
+        # Nach dem Setzen den aktuellen Wert abfragen und veröffentlichen
+        time.sleep(1)
+        new_hardness = get_data(session, token, "settings", "residual hardness")
+        if new_hardness is not None and new_hardness not in ("invalid token", "not logged in"):
+            client.publish(f"{STATE_TOPIC_BASE}/resthaerte", new_hardness)
+    else:
+        print(f"Unbekannter Befehl empfangen: '{command_payload}'")
+
 
 # --- Hauptprogramm ---
 if __name__ == "__main__":
@@ -157,9 +188,9 @@ if __name__ == "__main__":
                     continue
             
             raw_water_total = get_data(session, token, "consumption", "water total")
-            print(f"DEBUG: Empfangene Rohwasser-Daten: '{raw_water_total}'")
 
             if raw_water_total in ("invalid token", "not logged in"):
+                print(f"Token abgelaufen (Antwort: '{raw_water_total}'). Fordere neuen an.")
                 token = None
                 client.user_data_set({'token': token, 'session': session})
                 continue
@@ -167,20 +198,15 @@ if __name__ == "__main__":
             if raw_water_total and isinstance(raw_water_total, str):
                 try:
                     parts = raw_water_total.split()
-                    
-                    # HIER IST DIE FINALE KORREKTUR
                     if len(parts) >= 2:
-                        # Die letzten beiden Teile nehmen. Falls die Antwort nur aus 2 Teilen besteht, sind das Teil 0 und 1.
                         rawwater = float(parts[-2])
                         decarbonatedwater = float(parts[-1])
-                        
                         client.publish(f"{STATE_TOPIC_BASE}/rohwasser", round(rawwater / 1000.0, 2))
                         client.publish(f"{STATE_TOPIC_BASE}/entkalktes_wasser", round(decarbonatedwater / 1000.0, 2))
                     else:
-                        print(f"WARNUNG: Unerwartetes Format für Rohwasser-Daten. Erwartet >= 2 Teile, bekam {len(parts)}.")
-
+                        print(f"WARNUNG: Unerwartetes Format für Rohwasser-Daten: '{raw_water_total}'")
                 except (ValueError, IndexError) as e:
-                    print(f"FEHLER: Konnte Rohwasser-Daten nicht verarbeiten: {e}")
+                    print(f"FEHLER: Konnte Rohwasser-Daten ('{raw_water_total}') nicht verarbeiten: {e}")
             else:
                 print(f"WARNUNG: Keine gültigen Rohwasser-Daten empfangen (Wert: {raw_water_total}).")
 
@@ -195,7 +221,7 @@ if __name__ == "__main__":
 
             for name, (group, command) in data_points.items():
                 value = get_data(session, token, group, command)
-                if value is not None:
+                if value is not None and value not in ("invalid token", "not logged in"):
                     client.publish(f"{STATE_TOPIC_BASE}/{name}", value)
             
             print("Daten erfolgreich aktualisiert.")
