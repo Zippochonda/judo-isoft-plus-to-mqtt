@@ -23,7 +23,6 @@ MQTT_PORT = 1883
 MQTT_USER = "MQTTUSER"
 MQTT_PASSWORD = "MQTTPWD"
 MQTT_CLIENT_ID = "judo_i_soft_plus"
-MQTT_CLIENT_ID = "judo_i_soft_plus"
 BASE_TOPIC = f"homeassistant/sensor/{MQTT_CLIENT_ID}"
 COMMAND_TOPIC = f"{MQTT_CLIENT_ID}/command"
 STATE_TOPIC_BASE = f"{MQTT_CLIENT_ID}/state"
